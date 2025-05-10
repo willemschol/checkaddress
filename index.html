@@ -3,25 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Verificador de Área</title>
+  <title>Verificador de Múltiples Áreas</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     html, body {
       height: 100vh;
       margin: 0;
-      padding: 0;
       display: flex;
       flex-direction: column;
       font-family: sans-serif;
     }
-    #controls { padding: 10px; background: #f9f9f9; flex: 0 0 auto; }
+    #controls { padding: 10px; background: #f9f9f9; }
     input, button { font-size: 1rem; padding: 6px; }
-    #map { flex: 1 1 auto; }
+    #map { flex: 1; }
   </style>
 </head>
 <body>
   <div id="controls">
-    <h2>Verificador de Dirección en Área</h2>
+    <h2>Verificador de Múltiples Áreas</h2>
     <input id="address" type="text" placeholder="Ingresa dirección" size="50" />
     <button id="check">Verificar</button>
     <p id="result"></p>
@@ -31,7 +30,7 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
   <script>
-    // Leer parámetros de la URL
+    // Leer parámetros URL
     const params = new URLSearchParams(window.location.search);
     const paramAddress = params.get('address');
     const paramRaw = params.get('raw') === '1';
@@ -42,25 +41,38 @@
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    let polygon;
-    // Cargar y dibujar polígono
+    // Contenedor de polígonos
+    const areas = [];
+
+    // Cargar múltiples áreas y dibujarlas
     fetch('coords.json')
       .then(r => r.json())
       .then(data => {
-        const leafletCoords = data.map(c => [parseFloat(c.Latitud), parseFloat(c.Longitud)]);
-        L.polygon(leafletCoords, { color: 'blue', fillOpacity: 0.1 }).addTo(map);
-        const turfCoords = data.map(c => [parseFloat(c.Longitud), parseFloat(c.Latitud)]);
-        polygon = turf.polygon([turfCoords]);
+        data.forEach(area => {
+          const latlngs = area.coordinates.map(c => [parseFloat(c.Latitud), parseFloat(c.Longitud)]);
+          const poly = L.polygon(latlngs, {
+            label: area.id,
+            color: getRandomColor(),
+            fillOpacity: 0.1
+          }).addTo(map);
 
-        // Si viene dirección en URL, ejecuta verificación
-        if (paramAddress) {
-          document.getElementById('address').value = paramAddress;
-          checkAddress(paramAddress);
-        }
+          const turfCoords = area.coordinates.map(c => [parseFloat(c.Longitud), parseFloat(c.Latitud)]);
+          const turfPoly = turf.polygon([turfCoords]);
+
+          areas.push({ id: area.id, leafletPoly: poly, turfPoly });
+        });
+
+        // Si hay parámetro address en URL, verificar al cargar
+        if (paramAddress) checkAddress(paramAddress);
       })
-      .catch(e => console.error('Error al cargar coords.json', e));
+      .catch(e => console.error('Error cargando coords.json:', e));
 
-    // Función de verificación
+    // Genera colores aleatorios
+    function getRandomColor() {
+      return '#' + Math.floor(Math.random()*16777215).toString(16);
+    }
+
+    // Función para verificar una dirección
     async function checkAddress(addr) {
       const resEl = document.getElementById('result');
       try {
@@ -68,22 +80,26 @@
           `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`
         );
         const results = await resp.json();
-        if (!results.length) {
-          output('❌ Dirección no encontrada.');
-          return;
-        }
+        if (!results.length) return output('❌ Dirección no encontrada.');
+
         const { lat, lon, display_name } = results[0];
         const pt = turf.point([parseFloat(lon), parseFloat(lat)]);
-        const inside = turf.booleanPointInPolygon(pt, polygon);
-        const text = inside ? '✅ Dentro del área' : '❌ Fuera del área';
+
+        // Verificar en cada área
+        const insideAreas = areas.filter(a => turf.booleanPointInPolygon(pt, a.turfPoly))
+                                 .map(a => a.id);
+        let text;
+        if (insideAreas.length) {
+          text = `✅ Dentro de: ${insideAreas.join(', ')}`;
+        } else {
+          text = '❌ Fuera de todas las áreas';
+        }
 
         if (paramRaw) {
-          // Mostrar solo texto
           document.body.innerText = text;
           return;
         }
 
-        // Mostrar resultado en UI
         output(text);
         const marker = L.marker([parseFloat(lat), parseFloat(lon)]).addTo(map);
         marker.bindPopup(`<b>${display_name}</b><br>${text}`).openPopup();
@@ -93,10 +109,10 @@
         output('⚠️ Error al geocodificar.');
       }
 
-      function output(msg) { resEl.textContent = msg; }
+      function output(msg) { document.getElementById('result').textContent = msg; }
     }
 
-    // Manejar click del botón
+    // Evento del botón
     document.getElementById('check').addEventListener('click', () => {
       const addr = document.getElementById('address').value.trim();
       if (addr) checkAddress(addr);
