@@ -10,7 +10,7 @@ export default async function handler(req, res) {
       return res.status(400).send('❌ Falta parámetro address');
     }
 
-    // 1) Geocoding  
+    // 1) Geocoding
     const geoRes = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`
     );
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     const coordsText = await fs.readFile(jsonPath, 'utf-8');
     const coordsData = JSON.parse(coordsText);
 
-    // 3) Construir polígono
+    // 3) Construir polígono Turf
     const turfCoords = coordsData.map(c => [parseFloat(c.Longitud), parseFloat(c.Latitud)]);
     const turfPoly = polygon([turfCoords]);
 
