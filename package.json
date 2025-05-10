@@ -1,0 +1,9 @@
+{
+  "name": "check-area-api",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@turf/turf": "^6.5.0",
+    "node-fetch": "^3.4.0"
+  }
+}
