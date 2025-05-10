@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { polygon, point, booleanPointInPolygon } from '@turf/turf';
 import coordsData from '../coords.json' assert { type: 'json' };
 
