@@ -1,68 +1,148 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Prueba Múltiples Áreas</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-  <style> 
-    body, html { height:100%; margin:0; }
-    #map { height:100%; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Verificador de Múltiples Áreas</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+  <style>
+    html, body { height:100%; margin:0; display:flex; flex-direction:column; }
+    #controls { padding:10px; background:#f9f9f9; }
+    #map { flex:1; }
+    input, button { font-size:1rem; padding:6px; }
   </style>
 </head>
 <body>
+  <div id="controls">
+    <h2>Verificador de Múltiples Áreas</h2>
+    <input id="address" type="text" placeholder="Ingresa dirección" size="50"/>
+    <button id="check">Verificar</button>
+    <p id="result"></p>
+  </div>
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
   <script>
-    // 2. Inicializa el mapa (no importa dónde, luego haremos fitBounds)
-    const map = L.map('map').setView([-33.5, -70.7], 8);
+    // Lee parámetros URL
+    const params     = new URLSearchParams(window.location.search);
+    const paramAddr  = params.get('address');
+    const paramRaw   = params.get('raw') === '1';
 
+    // 1) Inicializa mapa
+    const map   = L.map('map').setView([-33.5, -70.7], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OSM'
+      attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // 3. Grupo para todas las áreas
+    // 2) Crea un featureGroup para todos los polígonos
     const group = L.featureGroup().addTo(map);
 
-    // 4. Carga y dibuja
+    // 3) Array para guardar {id, turfPoly}
+    const areas = [];
+
+    // 4) Carga coords.json, dibuja y crea turfPolys
     fetch('coords.json')
       .then(r => r.json())
       .then(data => {
-        console.log('🔍 IDs en JSON:', data.map(a=>a.id));
+        console.log('🔍 Áreas en JSON:', data.map(a => a.id));
 
         data.forEach(area => {
-          console.log('➡ Dibujando:', area.id);
-
-          // convierte a [lat, lon] numéricos
+          console.log('➡ Procesando:', area.id);
+          // convierte a [lat, lon]
           const latlngs = area.coordinates.map(c => [
             parseFloat(c.Latitud),
             parseFloat(c.Longitud)
           ]);
-
-          // añade el polígono
+          // dibuja en Leaflet
           const poly = L.polygon(latlngs, {
-            color: '#'+Math.floor(Math.random()*16777215).toString(16),
+            color: '#' + Math.floor(Math.random()*16777215).toString(16),
             fillOpacity: 0.2
-          });
+          }).addTo(group);
           poly.bindTooltip(area.id);
-          group.addLayer(poly);
 
-          // opcional: comprueba rápido con Turf que no haya error
+          // prepara coords para Turf [lng, lat]
+          const ring = area.coordinates.map(c => [
+            parseFloat(c.Longitud),
+            parseFloat(c.Latitud)
+          ]);
+          // cierra el anillo
+          const first = ring[0],
+                last  = ring[ring.length - 1];
+          if (first[0] !== last[0] || first[1] !== last[1]) {
+            ring.push(first);
+          }
+          // guarda el turf.Polygon
           try {
-            const turfCoords = latlngs.map(p => [p[1], p[0]]);
-            turf.polygon([turfCoords]);
+            const turfPoly = turf.polygon([ring]);
+            areas.push({ id: area.id, turfPoly });
           } catch(e) {
-            console.error('❌ Turf error en', area.id, e);
+            console.error('❌ Error Turf en', area.id, e);
           }
         });
 
-        // 5. Ajusta la vista para incluir todas las áreas
-        console.log('📐 Ajustando bounds de grupo:', group.getBounds());
+        // ajusta vista a todos
         map.fitBounds(group.getBounds());
+
+        // si viene ?address=… en URL, ejecuta la búsqueda
+        if (paramAddr) checkAddress(paramAddr);
       })
-      .catch(err => console.error('⚠️ Fetch coords.json:', err));
+      .catch(e => console.error('⚠️ Error cargando coords.json:', e));
+
+    // 5) Función para geocodificar y chequear
+    async function checkAddress(addr) {
+      const resEl = document.getElementById('result');
+      try {
+        const resp = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`
+        );
+        const j    = await resp.json();
+        if (!j.length) return output('❌ Dirección no encontrada.');
+
+        const { lat, lon, display_name } = j[0];
+        const pt   = turf.point([parseFloat(lon), parseFloat(lat)]);
+
+        // determina en qué áreas cae
+        const inside = areas
+          .filter(a => turf.booleanPointInPolygon(pt, a.turfPoly))
+          .map(a => a.id);
+
+        let text;
+        if (inside.length) {
+          text = `✅ Dentro de: ${inside.join(', ')}`;
+        } else {
+          text = '❌ Fuera de todas las áreas';
+        }
+
+        if (paramRaw) {
+          document.body.innerText = text;
+          return;
+        }
+
+        output(text);
+        // marcador y popup
+        const marker = L.marker([parseFloat(lat), parseFloat(lon)]).addTo(map);
+        marker.bindPopup(`<b>${display_name}</b><br>${text}`).openPopup();
+        map.setView([parseFloat(lat), parseFloat(lon)], 14);
+      } catch(err) {
+        console.error(err);
+        output('⚠️ Error al geocodificar.');
+      }
+
+      function output(msg) {
+        document.getElementById('result').textContent = msg;
+      }
+    }
+
+    // 6) Evento al botón
+    document.getElementById('check')
+      .addEventListener('click', () => {
+        const addr = document.getElementById('address').value.trim();
+        if (addr) checkAddress(addr);
+      });
   </script>
 </body>
 </html>
