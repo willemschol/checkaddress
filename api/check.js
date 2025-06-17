@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     const { lat, lon } = geoJson[0];
 
     // 2) Leer coords.json desde public/
-    const jsonPath   = join(process.cwd(), 'public', 'coords.json');
+    const jsonPath = join(__dirname, 'coords.json');
     const coordsText = await fs.readFile(jsonPath, 'utf-8');
     const coordsData = JSON.parse(coordsText);
 
