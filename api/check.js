@@ -1,11 +1,11 @@
 // api/check.js
 import { promises as fs } from 'fs';
-import { polygon, point, booleanPointInPolygon } from '@turf/turf';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { polygon, point, booleanPointInPolygon } from '@turf/turf';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname  = dirname(__filename);
 
 export default async function handler(req, res) {
   try {
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const { lat, lon } = geoJson[0];
 
     // 3) Leer coords.json **desde disco** (ruta relativa al módulo)
-    const jsonPath = join(__dirname, '..', 'coords.json');
+    const jsonPath   = join(process.cwd(), 'public', 'coords.json');
     const coordsText = await fs.readFile(jsonPath, 'utf-8');
     const coordsData = JSON.parse(coordsText);
 
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
     console.error('ERROR en /api/check:', err);
     res
       .status(500)
-      .setHeader('Content-Type', 'text/plain')
+      .setHeader('Content-Type','text/plain')
       .send(`⚠️ Error interno en la función:\n${err.message}`);
   }
 }
