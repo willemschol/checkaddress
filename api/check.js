@@ -64,7 +64,10 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('ERROR en /api/check:', err);
-    res.setHeader('Content-Type', 'text/plain');
-    return res.status(500).send('⚠️ Error interno en la función');
+    // ¡Aquí devolvemos el mensaje del error para depurar!
+    res
+      .status(500)
+      .setHeader('Content-Type', 'text/plain')
+      .send(`⚠️ Error interno en la función:\n${err.message}`);
   }
 }
