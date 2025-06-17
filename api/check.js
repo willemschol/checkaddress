@@ -4608,43 +4608,64 @@ const coordsData = [
 
 export default async function handler(req, res) {
   try {
+    // 1) Validar parámetro
     const address = req.query.address;
-    if (!address) return res.status(400).send('❌ Falta parámetro address');
-
-    // 1) Geocoding
-    const geo = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`
-    );
-    const results = await geo.json();
-    if (!Array.isArray(results) || !results.length) {
-      res.setHeader('Content-Type', 'text/plain');
-      return res.send('❌ Dirección no encontrada');
+    if (!address) {
+      return res.status(400).setHeader('Content-Type', 'text/plain')
+        .send('❌ Falta parámetro address');
     }
-    const { lat, lon } = results[0];
 
-    // 2) Construir LinearRing y cerrar el anillo
+    // 2) Geocoding con User-Agent obligatorio para Nominatim
+    const geoRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`,
+      {
+        headers: {
+          'User-Agent': 'CheckAddressApp/1.0 (contacto@tudominio.com)',
+          'Accept': 'application/json'
+        }
+      }
+    );
+    if (!geoRes.ok) {
+      throw new Error(`Geocoding failed: ${geoRes.status} ${geoRes.statusText}`);
+    }
+    const geoJson = await geoRes.json();
+    if (!Array.isArray(geoJson) || geoJson.length === 0) {
+      return res.status(200).setHeader('Content-Type', 'text/plain')
+        .send('❌ Dirección no encontrada');
+    }
+    const { lat, lon } = geoJson[0];
+
+    // 3) Construir el LinearRing [lng, lat]
     let ring = coordsData.map(c => [
       parseFloat(c.Longitud),
       parseFloat(c.Latitud)
     ]);
-    if (ring.length < 3) throw new Error('Necesito al menos 3 puntos');
-    const [x0,y0] = ring[0], [x1,y1] = ring[ring.length-1];
-    if (x0 !== x1 || y0 !== y1) ring.push([x0,y0]);
+    if (ring.length < 3) {
+      throw new Error('coordsData debe tener al menos 3 puntos');
+    }
+    // Cerrar el anillo si no está cerrado
+    const [x0, y0] = ring[0];
+    const [x1, y1] = ring[ring.length - 1];
+    if (x0 !== x1 || y0 !== y1) {
+      ring.push([x0, y0]);
+    }
 
-    // 3) Turf: polygon + PIP
+    // 4) Turf: crear polígono y verificar punto
     const turfPoly = polygon([ring]);
     const pt       = point([parseFloat(lon), parseFloat(lat)]);
     const inside   = booleanPointInPolygon(pt, turfPoly);
 
-    // 4) Responder solo texto
+    // 5) Responder solo texto plano
     res.setHeader('Content-Type', 'text/plain');
-    return res.send(inside ? '✅ Dentro del área' : '❌ Fuera del área');
+    return res
+      .status(200)
+      .send(inside ? '✅ Dentro del área' : '❌ Fuera del área');
 
   } catch (err) {
-    console.error('ERROR in /api/check:', err);
-    res
+    console.error('ERROR en /api/check:', err);
+    return res
       .status(500)
       .setHeader('Content-Type', 'text/plain')
-      .send(`⚠️ Function crashed:\n${err.stack}`);
+      .send(`⚠️ Error interno en la función:\n${err.message}`);
   }
 }
