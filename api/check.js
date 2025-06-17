@@ -39,10 +39,10 @@ export default async function handler(req, res) {
     return res.send(inside ? '✅ Dentro del área' : '❌ Fuera del área');
 
   } catch (err) {
-    console.error('ERROR en /api/check:', err);
+    console.error('ERROR in /api/check:', err);
     res
       .status(500)
-      .setHeader('Content-Type','text/plain')
-      .send(`⚠️ Error interno en la función:\n${err.message}`);
+      .setHeader('Content-Type', 'text/plain')
+      .send(`⚠️ Function crashed:\n${err.stack}`);
   }
 }
