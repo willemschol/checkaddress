@@ -4,19 +4,20 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { polygon, point, booleanPointInPolygon } from '@turf/turf';
 
-// __dirname helper for ESM
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default async function handler(req, res) {
   try {
-    // 1) Parámetro address
+    // 1) Validar parámetro `address`
     const address = req.query.address;
     if (!address) {
-      res.status(400).type('text/plain');
-      return res.send('❌ Falta parámetro address');
+      // No existe `res.type()` en Vercel; usar setHeader + send
+      res.setHeader('Content-Type', 'text/plain');
+      res.status(400).send('❌ Falta parámetro address');
+      return;
     }
 
-    // 2) Geocoding con User-Agent necesario para Nominatim
+    // 2) Geocoding (Nominatim requiere User-Agent)
     const geoRes = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`,
       {
@@ -31,32 +32,31 @@ export default async function handler(req, res) {
     }
     const geoJson = await geoRes.json();
     if (!Array.isArray(geoJson) || geoJson.length === 0) {
-      res.status(200).type('text/plain');
-      return res.send('❌ Dirección no encontrada');
+      res.setHeader('Content-Type', 'text/plain');
+      res.status(200).send('❌ Dirección no encontrada');
+      return;
     }
     const { lat, lon } = geoJson[0];
 
-    // 3) Leer coords.json (array de áreas) dentro de /api
+    // 3) Leer el JSON de áreas desde disco (dentro de api/)
     const jsonPath   = join(__dirname, 'coords.json');
     const coordsText = await fs.readFile(jsonPath, 'utf-8');
     const areas      = JSON.parse(coordsText);
 
-    // 4) Verificar cada área
+    // 4) Para cada área, construir el anillo y comprobar Point-In-Polygon
     const insideAreas = [];
     for (const area of areas) {
-      // Construir LinearRing [lng, lat]
       const ring = area.coordinates.map(c => [
         parseFloat(c.Longitud),
         parseFloat(c.Latitud)
       ]);
-      // Necesita al menos 3 puntos
-      if (ring.length < 3) continue;
-      // Cerrar el anillo si no está cerrado
+      if (ring.length < 3) continue;  // sin suficientes puntos
+
+      // auto-cerrar el anillo
       const [x0, y0] = ring[0];
       const [xn, yn] = ring[ring.length - 1];
       if (x0 !== xn || y0 !== yn) ring.push([x0, y0]);
 
-      // Crear polígono y comprobar punto
       const turfPoly = polygon([ring]);
       const pt       = point([parseFloat(lon), parseFloat(lat)]);
       if (booleanPointInPolygon(pt, turfPoly)) {
@@ -64,17 +64,17 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5) Responder solo texto
+    // 5) Responder solo texto plano
     const result = insideAreas.length
       ? `✅ Dentro de: ${insideAreas.join(', ')}`
       : '❌ Fuera de todas las áreas';
 
-    res.status(200).type('text/plain');
-    return res.send(result);
+    res.setHeader('Content-Type', 'text/plain');
+    res.status(200).send(result);
 
   } catch (err) {
     console.error('ERROR en /api/check:', err);
-    res.status(500).type('text/plain');
-    return res.send(`⚠️ Error interno en la función:\n${err.message}`);
+    res.setHeader('Content-Type', 'text/plain');
+    res.status(500).send(`⚠️ Error interno en la función:\n${err.message}`);
   }
 }
